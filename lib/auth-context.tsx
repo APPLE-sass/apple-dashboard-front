@@ -8,7 +8,7 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { authApi, getAccessToken, clearTokens } from './api';
+import { authApi, getAccessToken, clearTokens, getRefreshToken, saveTokens } from './api';
 import type { User } from './types';
 
 interface AuthContextType {
@@ -42,17 +42,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (token) {
-      const decoded = decodeToken(token);
-      if (decoded) {
-        setUser(decoded);
-      } else {
-        clearTokens();
+    const init = async () => {
+      const token = getAccessToken();
+      if (token) {
+        const decoded = decodeToken(token);
+        if (decoded) {
+          // Token vigente → ok
+          setUser(decoded);
+        } else {
+          // Token expirado → intentar refresh antes de desloguear
+          const refreshToken = getRefreshToken();
+          if (refreshToken) {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refreshToken }),
+            });
+            if (response.ok) {
+              const json = await response.json();
+              const tokens = json?.data ?? json;
+              saveTokens(tokens);
+              const newDecoded = decodeToken(tokens.accessToken);
+              setUser(newDecoded);
+            } else {
+              clearTokens();
+            }
+          } else {
+            clearTokens();
+          }
+        }
       }
-    }
-    // Always mark loading done after token check
-    setIsLoading(false);
+      setIsLoading(false);
+    };
+    init();
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

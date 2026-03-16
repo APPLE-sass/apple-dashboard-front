@@ -428,6 +428,13 @@ function SubAccesorioDialog({
             <Label>Descripción</Label>
             <Input placeholder="Descripción opcional" className="bg-secondary border-border" {...register('descripcion')} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Colores</Label>
+            <ColorTagInput
+              value={watch('colores') ?? []}
+              onChange={(colors) => setValue('colores', colors)}
+            />
+          </div>
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancelar</Button>
             <Button type="submit" disabled={isSubmitting}>
