@@ -154,6 +154,59 @@ function StockControl({
   );
 }
 
+// ─── ColorTagInput ────────────────────────────────────────────────────────────
+
+function ColorTagInput({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (colors: string[]) => void;
+}) {
+  const [input, setInput] = useState('');
+
+  const add = () => {
+    const trimmed = input.trim();
+    if (!trimmed || value.includes(trimmed)) return;
+    onChange([...value, trimmed]);
+    setInput('');
+  };
+
+  const remove = (color: string) => onChange(value.filter((c) => c !== color));
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+          placeholder="Ej: Negro, Blanco..."
+          className="bg-secondary border-border"
+        />
+        <Button type="button" variant="outline" onClick={add} disabled={!input.trim()}>
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+      {value.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {value.map((color) => (
+            <span
+              key={color}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-secondary border border-border"
+            >
+              {color}
+              <button type="button" onClick={() => remove(color)}>
+                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const accesorioSchema = z.object({
@@ -163,6 +216,7 @@ const accesorioSchema = z.object({
   descripcion: z.string().optional(),
   cantidad: z.coerce.number().int().min(0),
   puntoDeVentaId: z.string().min(1, 'Seleccioná un PdV'),
+  colores: z.array(z.string()).optional(),  // ← agregar
 });
 type AccesorioForm = z.infer<typeof accesorioSchema>;
 
@@ -172,6 +226,7 @@ const subAccesorioSchema = z.object({
   descripcion: z.string().optional(),
   cantidad: z.coerce.number().int().min(0),
   puntoDeVentaId: z.string().min(1, 'Seleccioná un PdV'),
+  colores: z.array(z.string()).optional(),
 });
 type SubAccesorioForm = z.infer<typeof subAccesorioSchema>;
 
@@ -194,14 +249,19 @@ function AccesorioDialog({
         descripcion: item.descripcion ?? '',
         cantidad: item.cantidad,
         puntoDeVentaId: item.puntoDeVentaId,
-      } : { nombre: '', modelo: '', tipo: '', descripcion: '', cantidad: 0, puntoDeVentaId: '' },
+        colores: item.colores?.map((c) => c.color) ?? [],
+      } : { nombre: '', modelo: '', tipo: '', descripcion: '', cantidad: 0, puntoDeVentaId: '', colores: [] },
     });
 
   const pdvValue = watch('puntoDeVentaId');
 
   const onSubmit = async (values: AccesorioForm) => {
     try {
-      const payload: AccesorioInput = { ...values, colores: [], imagenes: [] };
+      const payload: AccesorioInput = {
+        ...values,
+        colores: values.colores ?? [],  // ← en vez de []
+        // imagenes: [],
+      };
       if (isEditing) {
         await update.mutateAsync({ id: item!.id, data: payload });
         toast.success('Accesorio actualizado');
@@ -262,6 +322,13 @@ function AccesorioDialog({
             <Label>Descripción</Label>
             <Input placeholder="Descripción opcional" className="bg-secondary border-border" {...register('descripcion')} />
           </div>
+          <div className="space-y-1.5">
+            <Label>Colores</Label>
+            <ColorTagInput
+              value={watch('colores') ?? []}
+              onChange={(colors) => setValue('colores', colors)}
+            />
+          </div>
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => { reset(); onClose(); }}>Cancelar</Button>
             <Button type="submit" disabled={isSubmitting}>
@@ -293,14 +360,19 @@ function SubAccesorioDialog({
         descripcion: item.descripcion ?? '',
         cantidad: item.cantidad,
         puntoDeVentaId: item.puntoDeVentaId,
-      } : { nombre: '', tipo: '', descripcion: '', cantidad: 0, puntoDeVentaId: '' },
+        colores: item.colores?.map((c) => c.color) ?? [],
+      } : { nombre: '', tipo: '', descripcion: '', cantidad: 0, puntoDeVentaId: '', colores: [] },
     });
 
   const pdvValue = watch('puntoDeVentaId');
 
   const onSubmit = async (values: SubAccesorioForm) => {
     try {
-      const payload: SubAccesorioInput = { ...values, colores: [], imagenes: [] };
+      const payload: SubAccesorioInput = {
+        ...values,
+        colores: values.colores ?? [],
+        // imagenes: [],
+      }
       if (isEditing) {
         await update.mutateAsync({ id: item!.id, data: payload });
         toast.success('Sub-accesorio actualizado');
@@ -411,7 +483,7 @@ function AccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
   const [deleting, setDeleting] = useState<Accesorio | null>(null);
 
   // ✅ Fetch todo de una vez — sin filtros en el query key = mismo caché siempre
-  const { data, isLoading, error, refetch } = useAccesorios({});
+  const { data, isLoading, error } = useAccesorios({});
   const items: Accesorio[] = Array.isArray(data) ? data : (data?.items ?? []);
 
   const update = useUpdateAccesorio();
@@ -518,10 +590,6 @@ function AccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
             </Button>
           )}
 
-          <Button variant="outline" size="icon" onClick={() => refetch()} title="Actualizar">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-
           <Button onClick={openCreate} className="gap-2 shrink-0">
             <Plus className="h-4 w-4" />
             Nuevo
@@ -578,7 +646,7 @@ function AccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
                     <TableHead className="hidden md:table-cell">Tipo</TableHead>
                     <TableHead className="hidden lg:table-cell">PdV</TableHead>
                     <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                    <TableHead>Colores</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -605,6 +673,20 @@ function AccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
                             onUpdate={handleStockChange}
                             isPending={update.isPending}
                           />
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          <div>
+                            <p className="text-xs text-muted-foreground sm:hidden">{item.modelo} · {item.tipo}</p>
+                            {item.colores && item.colores.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {item.colores.map((c) => (
+                                  <span key={c.id} className="text-xs text-muted-foreground bg-secondary border border-border rounded-full px-1.5 py-0">
+                                    {c.color}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
@@ -670,7 +752,7 @@ function SubAccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
   const [deleting, setDeleting] = useState<SubAccesorio | null>(null);
 
   // ✅ Fetch todo de una vez — sin filtros en el query key = mismo caché siempre
-  const { data, isLoading, error, refetch } = useSubAccesorios({});
+  const { data, isLoading, error } = useSubAccesorios({});
   const items: SubAccesorio[] = Array.isArray(data) ? data : (data?.items ?? []);
 
   const updateSub = useUpdateSubAccesorio();
@@ -777,10 +859,6 @@ function SubAccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
             </Button>
           )}
 
-          <Button variant="outline" size="icon" onClick={() => refetch()} title="Actualizar">
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-
           <Button onClick={openCreate} className="gap-2 shrink-0">
             <Plus className="h-4 w-4" />
             Nuevo
@@ -837,7 +915,7 @@ function SubAccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
                     <TableHead className="hidden lg:table-cell">PdV</TableHead>
                     <TableHead className="hidden lg:table-cell">Descripción</TableHead>
                     <TableHead className="text-center">Stock</TableHead>
-                    <TableHead className="text-right">Acciones</TableHead>
+                    <TableHead>Colores</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -867,6 +945,22 @@ function SubAccesoriosTab({ pdvs }: { pdvs: PuntoDeVenta[] }) {
                             isPending={updateSub.isPending}
                           />
                         </TableCell>
+
+                        <TableCell className="font-medium">
+                          <div>
+                            <p className="text-xs text-muted-foreground sm:hidden">{item.modelo} · {item.tipo}</p>
+                            {item.colores && item.colores.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {item.colores.map((c) => (
+                                  <span key={c.id} className="text-xs text-muted-foreground bg-secondary border border-border rounded-full px-1.5 py-0">
+                                    {c.color}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
                             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(item)}>
