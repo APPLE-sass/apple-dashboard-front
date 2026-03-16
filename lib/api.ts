@@ -41,24 +41,36 @@ function unwrap<T>(json: unknown): T {
   return json as T;
 }
 
-async function tryRefreshToken(): Promise<boolean> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return false;
-  try {
-    const response = await fetch(`${API_URL}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
-    if (!response.ok) return false;
-    const json = await response.json();
-    const tokens = unwrap<AuthTokens>(json);
-    saveTokens(tokens);
-    return true;
-  } catch {
-    return false;
+  async function tryRefreshToken(): Promise<boolean> {
+    const refreshToken = getRefreshToken();
+    console.log('🔄 Intentando refresh...');
+    console.log('🔑 refreshToken existe:', !!refreshToken);
+    
+    if (!refreshToken) return false;
+    
+    try {
+      const response = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      
+      console.log('📡 Status del refresh:', response.status);
+      
+      const json = await response.json();
+      console.log('📦 Body del refresh:', json);
+      
+      if (!response.ok) return false;
+      
+      const tokens = unwrap<AuthTokens>(json);
+      saveTokens(tokens);
+      console.log('✅ Refresh exitoso, tokens guardados');
+      return true;
+    } catch (e) {
+      console.error('❌ Excepción en refresh:', e);
+      return false;
+    }
   }
-}
 
 // Main fetch wrapper — auto-refreshes on 401
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
