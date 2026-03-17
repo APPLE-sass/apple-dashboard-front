@@ -1,11 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  images: {
-    unoptimized: true,
-  },
+  typescript: { ignoreBuildErrors: true },
+  images: { unoptimized: true },
+  generateEtags: false,  // 👈 esto elimina el 304
+  generateBuildId: async () => Date.now().toString(),
   headers: async () => [
     {
       source: '/:path*',
