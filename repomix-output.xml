@@ -59,6 +59,10 @@ components/dashboard/products-filters.tsx
 components/dashboard/products-table.tsx
 components/dashboard/sidebar.tsx
 components/logo.tsx
+components/theme-manager/index.ts
+components/theme-manager/themeDebug.tsx
+components/theme-manager/themeProvider.tsx
+components/theme-manager/themeScript.tsx
 components/theme-provider.tsx
 components/ui/accordion.tsx
 components/ui/alert-dialog.tsx
@@ -122,8 +126,10 @@ hooks/use-mobile.ts
 hooks/use-products.ts
 hooks/use-toast.ts
 lib/api.ts
+lib/apply-theme.ts
 lib/auth-context.tsx
 lib/query-provider.tsx
+lib/theme-service.ts
 lib/types.ts
 lib/utils.ts
 next-env.d.ts
@@ -140,12 +146,973 @@ public/placeholder-logo.svg
 public/placeholder-user.jpg
 public/placeholder.jpg
 public/placeholder.svg
+railway.toml
 styles/globals.css
+tailwind.config.ts
 tsconfig.json
 </directory_structure>
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="components/theme-manager/index.ts">
+export { ThemeProvider, useTheme } from './themeProvider'
+export { ThemeScript }             from './themeScript'
+export { ThemeDebug }              from './themeDebug'
+</file>
+
+<file path="components/theme-manager/themeDebug.tsx">
+'use client'
+// components/theme-manager/ThemeDebug.tsx
+// ─── Panel de debug: muestra variables CSS activas en el DOM ─────────────────
+
+import { useState, useEffect, useCallback } from 'react'
+import { useTheme } from './themeProvider'
+
+// Variables CSS que queremos inspeccionar
+const WATCHED_VARS = [
+  '--primary',
+  '--primary-color',
+  '--secondary-color',
+  '--accent-color',
+  '--background',
+  '--foreground',
+  '--radius',
+  '--radius-bento',
+  '--font-sans',
+  '--font-serif',
+  '--font-display',
+  '--font-main',
+  '--font-heading',
+] as const
+
+type WatchedVar = typeof WATCHED_VARS[number]
+
+function readCssVar(name: WatchedVar): string {
+  if (typeof window === 'undefined') return ''
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim() || '(not set)'
+}
+
+function isColor(value: string): boolean {
+  return (
+    value.startsWith('#') ||
+    value.startsWith('rgb') ||
+    value.startsWith('hsl') ||
+    value.startsWith('oklch')
+  )
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
+interface ThemeDebugProps {
+  /** Solo visible en development por defecto */
+  forceShow?: boolean
+}
+
+export function ThemeDebug({ forceShow = false }: ThemeDebugProps) {
+  const { config, projectKey, source, isLoading } = useTheme()
+  const [vars, setVars]       = useState<Record<WatchedVar, string>>({} as any)
+  const [open, setOpen]       = useState(false)
+  const [copied, setCopied]   = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  const isDev = process.env.NODE_ENV === 'development'
+  const show  = forceShow || isDev
+
+  const refreshVars = useCallback(() => {
+    const snapshot = {} as Record<WatchedVar, string>
+    for (const v of WATCHED_VARS) {
+      snapshot[v] = readCssVar(v)
+    }
+    setVars(snapshot)
+  }, [])
+
+  useEffect(() => {
+    setMounted(true)
+    refreshVars()
+  }, [config, refreshVars])
+
+  if (!show || !mounted) return null
+
+  const sourceColors: Record<string, string> = {
+    api:      '#22c55e',
+    cache:    '#3b82f6',
+    fallback: '#f59e0b',
+    loading:  '#94a3b8',
+  }
+
+  const handleCopy = async () => {
+    const text = WATCHED_VARS
+      .map((v) => `${v}: ${vars[v]}`)
+      .join('\n')
+    await navigator.clipboard.writeText(`:root {\n${text}\n}`)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div
+      style={{
+        position:   'fixed',
+        bottom:     '1rem',
+        right:      '1rem',
+        zIndex:     9999,
+        fontFamily: 'monospace',
+      }}
+    >
+      {/* Toggle button */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display:         'flex',
+          alignItems:      'center',
+          gap:             '6px',
+          padding:         '6px 12px',
+          borderRadius:    '8px',
+          border:          '1px solid rgba(255,255,255,0.15)',
+          background:      'rgba(15,15,15,0.92)',
+          color:           '#e2e8f0',
+          fontSize:        '11px',
+          fontWeight:      600,
+          cursor:          'pointer',
+          backdropFilter:  'blur(12px)',
+          boxShadow:       '0 4px 24px rgba(0,0,0,0.4)',
+          letterSpacing:   '0.05em',
+          textTransform:   'uppercase',
+        }}
+      >
+        <span style={{
+          width:        '7px',
+          height:       '7px',
+          borderRadius: '50%',
+          background:   sourceColors[source] ?? '#94a3b8',
+          flexShrink:   0,
+          boxShadow:    `0 0 6px ${sourceColors[source] ?? '#94a3b8'}`,
+        }} />
+        🎨 Theme
+        <span style={{
+          padding:      '1px 6px',
+          borderRadius: '4px',
+          background:   'rgba(255,255,255,0.08)',
+          fontSize:     '10px',
+        }}>
+          {open ? '▲' : '▼'}
+        </span>
+      </button>
+
+      {/* Panel */}
+      {open && (
+        <div
+          style={{
+            position:       'absolute',
+            bottom:         'calc(100% + 8px)',
+            right:          0,
+            width:          '340px',
+            maxHeight:      '520px',
+            overflowY:      'auto',
+            borderRadius:   '12px',
+            border:         '1px solid rgba(255,255,255,0.1)',
+            background:     'rgba(10,10,10,0.96)',
+            backdropFilter: 'blur(20px)',
+            boxShadow:      '0 8px 40px rgba(0,0,0,0.6)',
+            color:          '#e2e8f0',
+            fontSize:       '11px',
+          }}
+        >
+          {/* Header */}
+          <div style={{
+            padding:      '12px 14px',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            display:      'flex',
+            justifyContent: 'space-between',
+            alignItems:   'center',
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '12px', color: '#f8fafc' }}>
+                Theme Inspector
+              </div>
+              <div style={{ color: '#64748b', marginTop: '2px' }}>
+                key: <span style={{ color: '#94a3b8' }}>{projectKey}</span>
+              </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Source badge */}
+              <span style={{
+                padding:      '2px 8px',
+                borderRadius: '20px',
+                background:   `${sourceColors[source]}20`,
+                color:        sourceColors[source],
+                border:       `1px solid ${sourceColors[source]}40`,
+                fontSize:     '10px',
+                fontWeight:   700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}>
+                {isLoading ? '⟳ loading' : source}
+              </span>
+              {/* Refresh */}
+              <button
+                onClick={refreshVars}
+                title="Refresh variables"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border:     '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '6px',
+                  color:      '#94a3b8',
+                  cursor:     'pointer',
+                  padding:    '3px 7px',
+                  fontSize:   '12px',
+                }}
+              >
+                ↺
+              </button>
+              {/* Copy */}
+              <button
+                onClick={handleCopy}
+                title="Copy as CSS"
+                style={{
+                  background: copied ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+                  border:     `1px solid ${copied ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: '6px',
+                  color:      copied ? '#22c55e' : '#94a3b8',
+                  cursor:     'pointer',
+                  padding:    '3px 7px',
+                  fontSize:   '11px',
+                }}
+              >
+                {copied ? '✓' : '⎘'}
+              </button>
+            </div>
+          </div>
+
+          {/* Variables list */}
+          <div style={{ padding: '8px 0' }}>
+            {WATCHED_VARS.map((varName) => {
+              const value   = vars[varName] ?? '…'
+              const isColor = value !== '(not set)' && value !== '…' && isColorValue(value)
+
+              return (
+                <div
+                  key={varName}
+                  style={{
+                    display:     'flex',
+                    alignItems:  'center',
+                    gap:         '10px',
+                    padding:     '5px 14px',
+                    transition:  'background 0.1s',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {/* Color swatch or placeholder */}
+                  <div style={{
+                    width:        '18px',
+                    height:       '18px',
+                    borderRadius: '4px',
+                    background:   isColor ? value : 'rgba(255,255,255,0.05)',
+                    border:       '1px solid rgba(255,255,255,0.12)',
+                    flexShrink:   0,
+                    fontSize:     isColor ? '0' : '10px',
+                    display:      'flex',
+                    alignItems:   'center',
+                    justifyContent: 'center',
+                    color:        '#475569',
+                  }}>
+                    {!isColor && (value !== '(not set)' ? '—' : '·')}
+                  </div>
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: '#7c6af7', fontSize: '10px', letterSpacing: '0.02em' }}>
+                      {varName}
+                    </div>
+                    <div style={{
+                      color:        value === '(not set)' ? '#334155' : '#cbd5e1',
+                      overflow:     'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace:   'nowrap',
+                      fontSize:     '11px',
+                      marginTop:    '1px',
+                    }}>
+                      {value}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Config JSON footer */}
+          <details style={{
+            borderTop:  '1px solid rgba(255,255,255,0.06)',
+            padding:    '10px 14px',
+          }}>
+            <summary style={{
+              cursor:     'pointer',
+              color:      '#475569',
+              fontSize:   '10px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+              userSelect: 'none',
+            }}>
+              Raw config JSON
+            </summary>
+            <pre style={{
+              marginTop:  '8px',
+              fontSize:   '10px',
+              color:      '#64748b',
+              overflow:   'auto',
+              maxHeight:  '150px',
+              background: 'rgba(255,255,255,0.03)',
+              borderRadius: '6px',
+              padding:    '8px',
+              lineHeight: 1.5,
+            }}>
+              {JSON.stringify(config, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function isColorValue(value: string): boolean {
+  return (
+    value.startsWith('#')   ||
+    value.startsWith('rgb') ||
+    value.startsWith('hsl') ||
+    value.startsWith('oklch')
+  )
+}
+</file>
+
+<file path="components/theme-manager/themeProvider.tsx">
+'use client'
+// components/theme-manager/ThemeProvider.tsx
+// ─── Provider de alto nivel: fetcha el tema y lo inyecta en el DOM ───────────
+// Se monta en el Layout (o en app/layout.tsx) para máxima prioridad de carga.
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode,
+} from 'react'
+import { fetchThemeConfig, NODO_FALLBACK_THEME, type ThemeConfig } from '@/lib/theme-service'
+import { applyTheme } from '@/lib/apply-theme'
+
+// ─── Context ──────────────────────────────────────────────────────────────────
+
+interface ThemeContextValue {
+  config:     ThemeConfig
+  projectKey: string
+  source:     'api' | 'cache' | 'fallback' | 'loading'
+  isLoading:  boolean
+  reload:     () => Promise<void>
+}
+
+const ThemeContext = createContext<ThemeContextValue>({
+  config:     NODO_FALLBACK_THEME,
+  projectKey: '',
+  source:     'loading',
+  isLoading:  true,
+  reload:     async () => {},
+})
+
+export function useTheme(): ThemeContextValue {
+  return useContext(ThemeContext)
+}
+
+// ─── Provider ─────────────────────────────────────────────────────────────────
+
+interface ThemeProviderProps {
+  children:      ReactNode
+  projectKey:    string
+  /** Config precargada desde el servidor (evita FOUC) */
+  initialConfig?: ThemeConfig
+}
+
+export function ThemeProvider({
+  children,
+  projectKey,
+  initialConfig,
+}: ThemeProviderProps) {
+  const [config, setConfig]   = useState<ThemeConfig>(initialConfig ?? NODO_FALLBACK_THEME)
+  const [source, setSource]   = useState<ThemeContextValue['source']>(
+    initialConfig ? 'api' : 'loading',
+  )
+  const [isLoading, setIsLoading] = useState(!initialConfig)
+
+  const load = useCallback(async () => {
+    setIsLoading(true)
+    const result = await fetchThemeConfig(projectKey)
+    setConfig(result.config)
+    setSource(result.source)
+    applyTheme(result.config)
+    setIsLoading(false)
+  }, [projectKey])
+
+  useEffect(() => {
+    // Si ya viene config del servidor, aplicarla en cliente de todas formas
+    // para sincronizar fuentes dinámicas (Google Fonts)
+    if (initialConfig) {
+      applyTheme(initialConfig)
+      setIsLoading(false)
+      return
+    }
+    void load()
+  }, [projectKey, load, initialConfig])
+
+  // Re-aplicar cuando cambia el config (ej: reload manual)
+  useEffect(() => {
+    if (!isLoading) applyTheme(config)
+  }, [config, isLoading])
+
+  return (
+    <ThemeContext.Provider
+      value={{ config, projectKey, source, isLoading, reload: load }}
+    >
+      {children}
+    </ThemeContext.Provider>
+  )
+}
+</file>
+
+<file path="components/theme-manager/themeScript.tsx">
+// components/theme-manager/ThemeScript.tsx
+// ─── Script inline SSR para evitar FOUC ──────────────────────────────────────
+// Se renderiza en el <head> del layout como Server Component.
+// Inyecta las variables CSS desde el servidor ANTES de que React hidrate,
+// eliminando el parpadeo visual (Flash of Unstyled Content).
+
+import { buildCssString } from "@/lib/apply-theme"
+import { fetchThemeConfig } from "@/lib/theme-service"
+
+
+interface ThemeScriptProps {
+  projectKey: string
+}
+
+/**
+ * Server Component — se ejecuta en el servidor durante SSR.
+ * 1. Fetchea el tema desde el backend (con caché de Next.js, revalidate 300s).
+ * 2. Genera el string de CSS variables.
+ * 3. Renderiza un <style> + <link> de Google Fonts inline en el <head>.
+ *
+ * Al estar en el <head> antes del <body>, las variables están disponibles
+ * desde el primer paint — sin flash, sin parpadeo.
+ */
+export async function ThemeScript({ projectKey }: ThemeScriptProps) {
+  const { config } = await fetchThemeConfig(projectKey)
+  const cssString  = buildCssString(config)
+
+  // Construir los links de Google Fonts para SSR
+  const fontsToLoad = [config.fontMain, config.fontHeading]
+    .filter(Boolean)
+    .filter((f) => !isSystemFont(f!))
+
+  const uniqueFonts = [...new Set(fontsToLoad)]
+
+  return (
+    <>
+      {/* Preconnect a Google Fonts si hay fuentes dinámicas */}
+      {uniqueFonts.length > 0 && (
+        <>
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link
+            rel="preconnect"
+            href="https://fonts.gstatic.com"
+            crossOrigin="anonymous"
+          />
+        </>
+      )}
+
+      {/* Links de Google Fonts — cargados con display=swap para no bloquear */}
+      {uniqueFonts.map((font) => (
+        <link
+          key={font}
+          rel="stylesheet"
+          href={`https://fonts.googleapis.com/css2?family=${encodeURIComponent(font!)}:wght@300;400;500;600;700&display=swap`}
+          data-gfont={font}
+        />
+      ))}
+
+      {/* Variables CSS inline — aplicadas antes del primer paint */}
+      <style
+        dangerouslySetInnerHTML={{ __html: cssString }}
+        data-theme-key={projectKey}
+      />
+    </>
+  )
+}
+
+function isSystemFont(font: string): boolean {
+  const system = new Set([
+    'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy',
+    'system-ui', '-apple-system', 'Arial', 'Helvetica',
+    'Georgia', 'Verdana', 'Times New Roman',
+  ])
+  return system.has(font)
+}
+</file>
+
+<file path="lib/apply-theme.ts">
+// lib/apply-theme.ts
+// ─── Motor de inyección de variables CSS + fuentes dinámicas ─────────────────
+// Recibe ThemeConfig y escribe las variables en :root del documento.
+
+import type { ThemeConfig } from './theme-service'
+
+// ─── Mapa de token → variable CSS ────────────────────────────────────────────
+// Cada clave del ThemeConfig se traduce a una (o varias) variables CSS.
+// Esto es lo que Tailwind consume vía `var(--*)`.
+
+type CssVarMap = {
+  [K in keyof ThemeConfig]?: (value: NonNullable<ThemeConfig[K]>) => Record<string, string>
+}
+
+const TOKEN_MAP: CssVarMap = {
+  primaryColor: (v) => ({
+    '--primary':            v,
+    '--primary-color':      v,
+    '--color-primary':      v,
+    '--ring':               v,
+    '--sidebar-primary':    v,
+  }),
+  secondaryColor: (v) => ({
+    '--secondary-color':    v,
+    '--color-secondary':    v,
+  }),
+  accentColor: (v) => ({
+    '--accent':             v,
+    '--accent-color':       v,
+    '--color-accent':       v,
+  }),
+  backgroundColor: (v) => ({
+    '--background':         v,
+    '--color-background':   v,
+  }),
+  textColor: (v) => ({
+    '--foreground':         v,
+    '--color-foreground':   v,
+  }),
+  borderRadius: (v) => ({
+    '--radius':             `${v}px`,
+    '--radius-bento':       `${v}px`,
+    '--radius-sm':          `${Math.max(0, v - 4)}px`,
+    '--radius-md':          `${Math.max(0, v - 2)}px`,
+    '--radius-lg':          `${v}px`,
+    '--radius-xl':          `${v + 4}px`,
+  }),
+  fontMain: (v) => ({
+    '--font-main':          v,
+    '--font-sans':          `'${v}', sans-serif`,
+  }),
+  fontHeading: (v) => ({
+    '--font-heading':       v,
+    '--font-serif':         `'${v}', serif`,
+    '--font-display':       `'${v}', serif`,
+  }),
+}
+
+// ─── Fuentes de Google ya cargadas (singleton) ───────────────────────────────
+const loadedFonts = new Set<string>()
+
+/**
+ * Verifica si una fuente ya está en el DOM o en loadedFonts,
+ * y si no, inserta el <link> de Google Fonts dinámicamente.
+ * Solo se ejecuta en el cliente (window check).
+ */
+export function loadGoogleFont(fontFamily: string): void {
+  if (typeof window === 'undefined') return
+  if (loadedFonts.has(fontFamily)) return
+
+  // Verificar si ya hay un link para esta fuente
+  const existing = document.head.querySelector(
+    `link[data-gfont="${CSS.escape(fontFamily)}"]`,
+  )
+  if (existing) {
+    loadedFonts.add(fontFamily)
+    return
+  }
+
+  // Familias que NO son Google Fonts (sistema / genéricas)
+  const systemFonts = new Set([
+    'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy',
+    'system-ui', '-apple-system', 'BlinkMacSystemFont',
+    'Segoe UI', 'Arial', 'Helvetica', 'Georgia', 'Verdana',
+    'Times New Roman', 'Courier New',
+  ])
+  if (systemFonts.has(fontFamily)) {
+    loadedFonts.add(fontFamily)
+    return
+  }
+
+  // Construir URL de Google Fonts v2
+  const encodedFamily = encodeURIComponent(fontFamily)
+  const href = `https://fonts.googleapis.com/css2?family=${encodedFamily}:wght@300;400;500;600;700&display=swap`
+
+  // Preconnect (solo una vez)
+  if (!document.head.querySelector('link[rel="preconnect"][href="https://fonts.googleapis.com"]')) {
+    const preconnect1 = document.createElement('link')
+    preconnect1.rel  = 'preconnect'
+    preconnect1.href = 'https://fonts.googleapis.com'
+    document.head.appendChild(preconnect1)
+
+    const preconnect2 = document.createElement('link')
+    preconnect2.rel          = 'preconnect'
+    preconnect2.href         = 'https://fonts.gstatic.com'
+    preconnect2.crossOrigin  = 'anonymous'
+    document.head.appendChild(preconnect2)
+  }
+
+  // Insertar el link
+  const link = document.createElement('link')
+  link.rel                   = 'stylesheet'
+  link.href                  = href
+  link.setAttribute('data-gfont', fontFamily)
+  document.head.appendChild(link)
+
+  loadedFonts.add(fontFamily)
+}
+
+/**
+ * applyTheme(config)
+ *
+ * Escribe las variables CSS en document.documentElement (:root).
+ * Llama a loadGoogleFont para cada fuente del config.
+ * Es idempotente — puede llamarse varias veces con distintos configs.
+ */
+export function applyTheme(config: ThemeConfig): void {
+  if (typeof document === 'undefined') return
+
+  const root = document.documentElement
+
+  // Recorrer cada token del config y mapear a variables CSS
+  for (const [key, value] of Object.entries(config)) {
+    if (value === undefined || value === null) continue
+
+    const mapper = TOKEN_MAP[key as keyof ThemeConfig]
+    if (mapper) {
+      // @ts-ignore — el tipado dinámico es correcto por construcción
+      const vars = mapper(value)
+      for (const [cssVar, cssValue] of Object.entries(vars)) {
+        root.style.setProperty(cssVar, cssValue)
+      }
+    }
+
+    // customTokens: aplicar directamente como --nombre-token
+    if (key === 'customTokens' && typeof value === 'object') {
+      for (const [tokenName, tokenValue] of Object.entries(value as Record<string, string | number>)) {
+        const varName = tokenName.startsWith('--') ? tokenName : `--${tokenName}`
+        root.style.setProperty(varName, String(tokenValue))
+      }
+    }
+  }
+
+  // Cargar fuentes dinámicamente
+  if (config.fontMain)    loadGoogleFont(config.fontMain)
+  if (config.fontHeading) loadGoogleFont(config.fontHeading)
+
+  // Aplicar data-theme para selector CSS si se quiere scope adicional
+  if (config.themeMode && config.themeMode !== 'system') {
+    root.setAttribute('data-theme', config.themeMode)
+  }
+}
+
+/**
+ * buildCssString(config)
+ *
+ * Versión SSR-safe: devuelve un string de CSS con las variables
+ * listo para inyectar en un <style> tag en el servidor.
+ * Esto evita FOUC (Flash of Unstyled Content) en la primera carga.
+ */
+export function buildCssString(config: ThemeConfig): string {
+  const lines: string[] = []
+
+  for (const [key, value] of Object.entries(config)) {
+    if (value === undefined || value === null) continue
+    if (key === 'customTokens' || key === 'themeMode' || key === 'fontMain' || key === 'fontHeading') continue
+
+    const mapper = TOKEN_MAP[key as keyof ThemeConfig]
+    if (mapper) {
+      // @ts-ignore
+      const vars = mapper(value)
+      for (const [cssVar, cssValue] of Object.entries(vars)) {
+        lines.push(`  ${cssVar}: ${cssValue};`)
+      }
+    }
+  }
+
+  if (config.fontMain) {
+    lines.push(`  --font-main: ${config.fontMain};`)
+    lines.push(`  --font-sans: '${config.fontMain}', sans-serif;`)
+  }
+  if (config.fontHeading) {
+    lines.push(`  --font-heading: ${config.fontHeading};`)
+    lines.push(`  --font-serif: '${config.fontHeading}', serif;`)
+    lines.push(`  --font-display: '${config.fontHeading}', serif;`)
+  }
+
+  if (config.customTokens) {
+    for (const [tokenName, tokenValue] of Object.entries(config.customTokens)) {
+      const varName = tokenName.startsWith('--') ? tokenName : `--${tokenName}`
+      lines.push(`  ${varName}: ${String(tokenValue)};`)
+    }
+  }
+
+  return `:root {\n${lines.join('\n')}\n}`
+}
+</file>
+
+<file path="lib/theme-service.ts">
+// lib/theme-service.ts
+// ─── Servicio de temas White-Label ───────────────────────────────────────────
+// Consume GET /themes/:projectKey y devuelve los design tokens.
+// Si la API falla, devuelve el fallback del Sistema NODO.
+
+export interface ThemeConfig {
+  primaryColor?:    string
+  secondaryColor?:  string
+  accentColor?:     string
+  backgroundColor?: string
+  textColor?:       string
+  borderRadius?:    number
+  fontMain?:        string
+  fontHeading?:     string
+  themeMode?:       'light' | 'dark' | 'system'
+  customTokens?:    Record<string, string | number>
+}
+
+export interface ThemeResponse {
+  projectKey: string
+  isDefault:  boolean
+  config:     ThemeConfig
+  cachedAt?:  string
+}
+
+// ─── Fallback: Sistema NODO (siempre disponible sin red) ─────────────────────
+export const NODO_FALLBACK_THEME: ThemeConfig = {
+  primaryColor:    '#E63946',
+  secondaryColor:  '#1D3557',
+  accentColor:     '#457B9D',
+  backgroundColor: '#F1FAEE',
+  textColor:       '#1D3557',
+  borderRadius:    6,
+  fontMain:        'Plus Jakarta Sans',
+  fontHeading:     'Michroma',
+  themeMode:       'light',
+  customTokens:    {},
+}
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1'
+
+// Cache en memoria para evitar re-fetches dentro de la misma sesión
+const memoryCache = new Map<string, ThemeConfig>()
+
+/**
+ * Obtiene la config de tema del backend.
+ * - Si hay un hit de caché en memoria, lo devuelve directamente.
+ * - Si la request falla (red caída, 404, timeout), devuelve el fallback NODO.
+ * - Si isDefault=true en la respuesta, igual aplica esos tokens (son válidos).
+ */
+export async function fetchThemeConfig(
+  projectKey: string,
+  timeoutMs = 3000,
+): Promise<{ config: ThemeConfig; source: 'api' | 'cache' | 'fallback' }> {
+  // 1. Hit de caché en memoria
+  if (memoryCache.has(projectKey)) {
+    return { config: memoryCache.get(projectKey)!, source: 'cache' }
+  }
+
+  // 2. Fetch con timeout
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+    const res = await fetch(`${BASE_URL}/themes/${projectKey}`, {
+      signal: controller.signal,
+      // No mandamos Authorization: es una ruta pública
+      headers: { 'Content-Type': 'application/json' },
+      // next.js: revalidar cada 5 minutos (coincide con el TTL del backend)
+      next: { revalidate: 300 },
+    })
+
+    clearTimeout(timer)
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+    // El backend aplana el config directamente en la respuesta:
+    // { projectKey, isDefault, primaryColor, fontMain, ... }
+    const raw = await res.json()
+
+    // Extraer solo los tokens (excluir projectKey, isDefault, cachedAt)
+    const { projectKey: _pk, isDefault: _id, cachedAt: _ca, ...tokens } = raw
+    const config: ThemeConfig = tokens
+
+    // Guardar en caché de memoria
+    memoryCache.set(projectKey, config)
+
+    return { config, source: 'api' }
+  } catch {
+    // 3. Fallback silencioso — nunca rompemos la UI por un tema
+    return { config: NODO_FALLBACK_THEME, source: 'fallback' }
+  }
+}
+
+/** Limpia el caché en memoria (útil en hot-reload / dev) */
+export function clearThemeCache(projectKey?: string) {
+  if (projectKey) {
+    memoryCache.delete(projectKey)
+  } else {
+    memoryCache.clear()
+  }
+}
+</file>
+
+<file path="tailwind.config.ts">
+// tailwind.config.ts
+// ─── Tailwind configurado para consumir las variables CSS del ThemeManager ───
+// Todas las clases de Tailwind (bg-primary, text-secondary, rounded-lg…)
+// apuntan a las variables que applyTheme() escribe en :root.
+// Cambiar el tema en el backend se refleja automáticamente sin recompilar.
+
+import type { Config } from 'tailwindcss'
+
+const config: Config = {
+  darkMode: ['class', '[data-theme="dark"]'],
+
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+  ],
+
+  theme: {
+    extend: {
+      // ── Colores ─────────────────────────────────────────────────────────────
+      // Cada token del ThemeConfig tiene su variable CSS homóloga.
+      // El formato CSS `hsl(var(--x))` no aplica aquí porque usamos hex/rgb,
+      // así que referenciamos la variable directamente.
+      colors: {
+        // Colores principales del tema
+        primary: {
+          DEFAULT:    'var(--primary-color, var(--primary, #E63946))',
+          foreground: 'var(--primary-foreground, #ffffff)',
+        },
+        secondary: {
+          DEFAULT:    'var(--secondary-color, #1D3557)',
+          foreground: 'var(--secondary-foreground, #ffffff)',
+        },
+        accent: {
+          DEFAULT:    'var(--accent-color, var(--accent, #457B9D))',
+          foreground: 'var(--accent-foreground, #ffffff)',
+        },
+
+        // Backgrounds y textos
+        background: 'var(--background, var(--color-background, #F1FAEE))',
+        foreground: 'var(--foreground, var(--color-foreground, #1D3557))',
+
+        // Shadcn/UI compatibility — estas ya existen en globals.css
+        // pero las sobreescribimos para que también acepten el tema
+        border:  'var(--border, rgba(0,0,0,0.1))',
+        input:   'var(--input, rgba(0,0,0,0.08))',
+        ring:    'var(--ring, var(--primary-color, #E63946))',
+        muted: {
+          DEFAULT:    'var(--muted, rgba(0,0,0,0.05))',
+          foreground: 'var(--muted-foreground, rgba(0,0,0,0.5))',
+        },
+        card: {
+          DEFAULT:    'var(--card, #ffffff)',
+          foreground: 'var(--card-foreground, var(--foreground))',
+        },
+        popover: {
+          DEFAULT:    'var(--popover, #ffffff)',
+          foreground: 'var(--popover-foreground, var(--foreground))',
+        },
+        destructive: {
+          DEFAULT:    'var(--destructive, #ef4444)',
+          foreground: 'var(--destructive-foreground, #ffffff)',
+        },
+
+        // Sidebar (usada en el layout existente)
+        sidebar: {
+          DEFAULT:            'var(--sidebar, #f8fafc)',
+          foreground:         'var(--sidebar-foreground, var(--foreground))',
+          primary:            'var(--sidebar-primary, var(--primary-color))',
+          'primary-foreground': 'var(--sidebar-primary-foreground, #ffffff)',
+          accent:             'var(--sidebar-accent, var(--accent-color))',
+          'accent-foreground': 'var(--sidebar-accent-foreground, #ffffff)',
+          border:             'var(--sidebar-border, var(--border))',
+          ring:               'var(--sidebar-ring, var(--ring))',
+        },
+      },
+
+      // ── Tipografía ───────────────────────────────────────────────────────────
+      fontFamily: {
+        // font-sans → usa la fuente principal del tema (ej: Plus Jakarta Sans)
+        sans: [
+          'var(--font-sans, var(--font-main, "Plus Jakarta Sans"))',
+          'ui-sans-serif',
+          'system-ui',
+          'sans-serif',
+        ],
+        // font-serif → usa la fuente heading del tema (ej: Michroma)
+        serif: [
+          'var(--font-serif, var(--font-heading, "Michroma"))',
+          'ui-serif',
+          'Georgia',
+          'serif',
+        ],
+        // font-display → alias explícito para headings display
+        display: [
+          'var(--font-display, var(--font-heading, "Michroma"))',
+          'ui-serif',
+          'serif',
+        ],
+        // font-mono → siempre fijo
+        mono: [
+          '"Geist Mono"',
+          'ui-monospace',
+          'SFMono-Regular',
+          'monospace',
+        ],
+      },
+
+      // ── Border Radius ────────────────────────────────────────────────────────
+      // Tailwind usa `rounded-lg`, `rounded-xl` etc.
+      // Los mapeamos a las variables que applyTheme() genera.
+      borderRadius: {
+        none:   '0',
+        sm:     'var(--radius-sm,    2px)',
+        DEFAULT:'var(--radius,       6px)',
+        md:     'var(--radius-md,    4px)',
+        lg:     'var(--radius-lg,    var(--radius, 6px))',
+        xl:     'var(--radius-xl,    10px)',
+        '2xl':  'calc(var(--radius, 6px) * 2)',
+        '3xl':  'calc(var(--radius, 6px) * 3)',
+        full:   '9999px',
+        // Alias semántico para las bento cards
+        bento:  'var(--radius-bento, var(--radius, 6px))',
+      },
+
+      // ── CSS Variables extras ─────────────────────────────────────────────────
+      // Para usar en `className="text-[var(--accent-color)]"` etc.
+      // También expone los tokens como `bg-[--primary-color]` (Tailwind v3.3+)
+    },
+  },
+
+  plugins: [],
+}
+
+export default config
+</file>
 
 <file path=".gitignore">
 # v0 runtime files
@@ -697,60 +1664,6 @@ export default function PdvPage() {
   body {
     @apply bg-background text-foreground;
   }
-}
-</file>
-
-<file path="app/layout.tsx">
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import { Analytics } from '@vercel/analytics/next'
-import { Toaster } from 'sonner'
-import { QueryProvider } from '@/lib/query-provider'
-import { AuthProvider } from '@/lib/auth-context'
-import './globals.css'
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-});
-
-export const metadata: Metadata = {
-  title: 'Stock Apple',
-  description: 'Manejo de Stock de Productos Apple',
-  icons: {
-    icon: '/logo.svg',
-    apple: '/logo.svg',
-  },
-}
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode
-}>) {
-  return (
-    <html lang="es" className="dark">
-      <body className={`${inter.variable} font-sans antialiased`}>
-        <QueryProvider>
-          <AuthProvider>
-            {children}
-            <Toaster
-              theme="dark"
-              position="top-right"
-              toastOptions={{
-                style: {
-                  background: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  color: 'hsl(var(--foreground))',
-                },
-              }}
-            />
-          </AuthProvider>
-        </QueryProvider>
-        <Analytics />
-      </body>
-    </html>
-  )
 }
 </file>
 
@@ -9918,6 +10831,18 @@ export default config
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" fill="none"><rect width="1200" height="1200" fill="#EAEAEA" rx="3"/><g opacity=".5"><g opacity=".5"><path fill="#FAFAFA" d="M600.709 736.5c-75.454 0-136.621-61.167-136.621-136.62 0-75.454 61.167-136.621 136.621-136.621 75.453 0 136.62 61.167 136.62 136.621 0 75.453-61.167 136.62-136.62 136.62Z"/><path stroke="#C9C9C9" stroke-width="2.418" d="M600.709 736.5c-75.454 0-136.621-61.167-136.621-136.62 0-75.454 61.167-136.621 136.621-136.621 75.453 0 136.62 61.167 136.62 136.621 0 75.453-61.167 136.62-136.62 136.62Z"/></g><path stroke="url(#a)" stroke-width="2.418" d="M0-1.209h553.581" transform="scale(1 -1) rotate(45 1163.11 91.165)"/><path stroke="url(#b)" stroke-width="2.418" d="M404.846 598.671h391.726"/><path stroke="url(#c)" stroke-width="2.418" d="M599.5 795.742V404.017"/><path stroke="url(#d)" stroke-width="2.418" d="m795.717 796.597-391.441-391.44"/><path fill="#fff" d="M600.709 656.704c-31.384 0-56.825-25.441-56.825-56.824 0-31.384 25.441-56.825 56.825-56.825 31.383 0 56.824 25.441 56.824 56.825 0 31.383-25.441 56.824-56.824 56.824Z"/><g clip-path="url(#e)"><path fill="#666" fill-rule="evenodd" d="M616.426 586.58h-31.434v16.176l3.553-3.554.531-.531h9.068l.074-.074 8.463-8.463h2.565l7.18 7.181V586.58Zm-15.715 14.654 3.698 3.699 1.283 1.282-2.565 2.565-1.282-1.283-5.2-5.199h-6.066l-5.514 5.514-.073.073v2.876a2.418 2.418 0 0 0 2.418 2.418h26.598a2.418 2.418 0 0 0 2.418-2.418v-8.317l-8.463-8.463-7.181 7.181-.071.072Zm-19.347 5.442v4.085a6.045 6.045 0 0 0 6.046 6.045h26.598a6.044 6.044 0 0 0 6.045-6.045v-7.108l1.356-1.355-1.282-1.283-.074-.073v-17.989h-38.689v23.43l-.146.146.146.147Z" clip-rule="evenodd"/></g><path stroke="#C9C9C9" stroke-width="2.418" d="M600.709 656.704c-31.384 0-56.825-25.441-56.825-56.824 0-31.384 25.441-56.825 56.825-56.825 31.383 0 56.824 25.441 56.824 56.825 0 31.383-25.441 56.824-56.824 56.824Z"/></g><defs><linearGradient id="a" x1="554.061" x2="-.48" y1=".083" y2=".087" gradientUnits="userSpaceOnUse"><stop stop-color="#C9C9C9" stop-opacity="0"/><stop offset=".208" stop-color="#C9C9C9"/><stop offset=".792" stop-color="#C9C9C9"/><stop offset="1" stop-color="#C9C9C9" stop-opacity="0"/></linearGradient><linearGradient id="b" x1="796.912" x2="404.507" y1="599.963" y2="599.965" gradientUnits="userSpaceOnUse"><stop stop-color="#C9C9C9" stop-opacity="0"/><stop offset=".208" stop-color="#C9C9C9"/><stop offset=".792" stop-color="#C9C9C9"/><stop offset="1" stop-color="#C9C9C9" stop-opacity="0"/></linearGradient><linearGradient id="c" x1="600.792" x2="600.794" y1="403.677" y2="796.082" gradientUnits="userSpaceOnUse"><stop stop-color="#C9C9C9" stop-opacity="0"/><stop offset=".208" stop-color="#C9C9C9"/><stop offset=".792" stop-color="#C9C9C9"/><stop offset="1" stop-color="#C9C9C9" stop-opacity="0"/></linearGradient><linearGradient id="d" x1="404.85" x2="796.972" y1="403.903" y2="796.02" gradientUnits="userSpaceOnUse"><stop stop-color="#C9C9C9" stop-opacity="0"/><stop offset=".208" stop-color="#C9C9C9"/><stop offset=".792" stop-color="#C9C9C9"/><stop offset="1" stop-color="#C9C9C9" stop-opacity="0"/></linearGradient><clipPath id="e"><path fill="#fff" d="M581.364 580.535h38.689v38.689h-38.689z"/></clipPath></defs></svg>
 </file>
 
+<file path="railway.toml">
+[deploy]
+startCommand = "pnpm start"
+
+[[headers]]
+path = "/*"
+[headers.values]
+Cache-Control = "no-store, no-cache, must-revalidate"
+Pragma = "no-cache"
+Expires = "0"
+</file>
+
 <file path="styles/globals.css">
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -10090,6 +11015,73 @@ export default config
 }
 </file>
 
+<file path="app/layout.tsx">
+import type { Metadata } from 'next'
+import { Inter } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from 'sonner'
+import { QueryProvider } from '@/lib/query-provider'
+import { AuthProvider } from '@/lib/auth-context'
+import './globals.css'
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+});
+
+export const metadata: Metadata = {
+  title: 'Stock Apple',
+  description: 'Manejo de Stock de Productos Apple',
+  icons: {
+    icon: '/logo.svg',
+    apple: '/logo.svg',
+  },
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode
+}>) {
+  return (
+    <html lang="es" className="dark">
+      <head>
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for (let registration of registrations) {
+                  registration.unregister();
+                }
+              });
+            }
+          `
+        }} />
+      </head>
+      <body className={`${inter.variable} font-sans antialiased`}>
+        <QueryProvider>
+          <AuthProvider>
+            {children}
+            <Toaster
+              theme="dark"
+              position="top-right"
+              toastOptions={{
+                style: {
+                  background: 'hsl(var(--card))',
+                  border: '1px solid hsl(var(--border))',
+                  color: 'hsl(var(--foreground))',
+                },
+              }}
+            />
+          </AuthProvider>
+        </QueryProvider>
+        <Analytics />
+      </body>
+    </html>
+  )
+}
+</file>
+
 <file path="lib/auth-context.tsx">
 'use client';
 
@@ -10221,50 +11213,6 @@ export function useAuth() {
   }
   return context;
 }
-</file>
-
-<file path="next.config.mjs">
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  images: {
-    unoptimized: true,
-  },
-  // Fuerza revalidación en cada request para páginas dinámicas
-  headers: async () => [
-    {
-      source: '/:path*',
-      headers: [
-        {
-          key: 'Cache-Control',
-          value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
-        },
-        {
-          key: 'Pragma',
-          value: 'no-cache',
-        },
-        {
-          key: 'Expires',
-          value: '0',
-        },
-      ],
-    },
-    // Los chunks de JS/CSS sí pueden cachearse porque Next les cambia el hash
-    {
-      source: '/_next/static/:path*',
-      headers: [
-        {
-          key: 'Cache-Control',
-          value: 'public, max-age=31536000, immutable',
-        },
-      ],
-    },
-  ],
-}
-
-export default nextConfig
 </file>
 
 <file path="app/dashboard/page.tsx">
@@ -11558,6 +12506,29 @@ export const subAccesoriosApi = {
   delete: (id: string) =>
     apiFetch<{ message: string }>(`/sub-accesorios/${id}`, { method: 'DELETE' }),
 };
+</file>
+
+<file path="next.config.mjs">
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  typescript: { ignoreBuildErrors: true },
+  images: { unoptimized: true },
+  generateEtags: false,  // 👈 esto elimina el 304
+  generateBuildId: async () => Date.now().toString(),
+  headers: async () => [
+    {
+      source: '/:path*',
+      headers: [
+        { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate' },
+        { key: 'Pragma', value: 'no-cache' },
+        { key: 'Expires', value: '0' },
+        { key: 'Surrogate-Control', value: 'no-store' },
+      ],
+    },
+  ],
+}
+
+export default nextConfig
 </file>
 
 </files>

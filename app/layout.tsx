@@ -4,6 +4,7 @@ import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from 'sonner'
 import { QueryProvider } from '@/lib/query-provider'
 import { AuthProvider } from '@/lib/auth-context'
+import { ThemeProvider, ThemeScript } from '@/components/theme-manager'
 import './globals.css'
 
 const inter = Inter({
@@ -20,6 +21,8 @@ export const metadata: Metadata = {
   },
 }
 
+const PROJECT_KEY = process.env.NEXT_PUBLIC_THEME_KEY ?? 'apple-dashboard'
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,6 +31,7 @@ export default function RootLayout({
   return (
     <html lang="es" className="dark">
       <head>
+        /* este script lo puse para descachear versiones pero era un problema de la version del monitor* /
         <script dangerouslySetInnerHTML={{
           __html: `
             if ('serviceWorker' in navigator) {
@@ -39,22 +43,27 @@ export default function RootLayout({
             }
           `
         }} />
+        /* tematica para ver los diferentes estilos de la pantalla* /
+        <ThemeScript projectKey={PROJECT_KEY} />
       </head>
       <body className={`${inter.variable} font-sans antialiased`}>
+
         <QueryProvider>
           <AuthProvider>
-            {children}
-            <Toaster
-              theme="dark"
-              position="top-right"
-              toastOptions={{
-                style: {
-                  background: 'hsl(var(--card))',
-                  border: '1px solid hsl(var(--border))',
-                  color: 'hsl(var(--foreground))',
-                },
-              }}
-            />
+            <ThemeProvider projectKey={PROJECT_KEY}>
+              {children}
+              <Toaster
+                theme="dark"
+                position="top-right"
+                toastOptions={{
+                  style: {
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    color: 'hsl(var(--foreground))',
+                  },
+                }}
+              />
+            </ThemeProvider>
           </AuthProvider>
         </QueryProvider>
         <Analytics />

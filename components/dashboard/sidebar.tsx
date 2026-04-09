@@ -13,12 +13,14 @@ import {
   Layers,
   LogOut,
   User,
+  MessageSquare,
 } from 'lucide-react';
 import { Logo } from '@/components/logo';
 
 const navigation = [
   { name: 'Stock', href: '/dashboard', icon: Layers },
   { name: 'Puntos de Venta', href: '/dashboard/pdv', icon: Store },
+  { name: 'Chat',            href: '/dashboard/chat',  icon: MessageSquare }
 ];
 
 export function DashboardSidebar() {
